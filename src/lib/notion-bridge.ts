@@ -230,7 +230,7 @@ export async function syncNotionToCef(
     }
 
     const resumeText = textParts.join("\n");
-    if (resumeText.length < 200) {
+    if (resumeText.length < 50) {
       stats.skipped++;
       continue;
     }
