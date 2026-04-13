@@ -167,7 +167,7 @@ export interface SyncStats {
 
 export async function syncNotionToCef(
   client: ClientSdk,
-  options: { limit?: number; lastSyncTime?: string | null } = {}
+  options: { limit?: number; lastSyncTime?: string | null; pageIds?: string[] } = {}
 ): Promise<SyncStats> {
   const notion = new Client({ auth: process.env.NOTION_API_KEY });
   const NOTION_DB = process.env.NOTION_DATABASE_ID!;
@@ -188,20 +188,28 @@ export async function syncNotionToCef(
     completedAt: "",
   };
 
-  const filter = options.lastSyncTime
-    ? {
-        timestamp: "last_edited_time" as const,
-        last_edited_time: { after: options.lastSyncTime },
-      }
-    : undefined;
+  let pages: any[];
 
-  const response = await notion.databases.query({
-    database_id: NOTION_DB,
-    filter,
-    sorts: [{ timestamp: "last_edited_time", direction: "descending" }],
-  });
+  if (options.pageIds && options.pageIds.length > 0) {
+    const retrieved = await Promise.all(
+      options.pageIds.map((id) => notion.pages.retrieve({ page_id: id }).catch(() => null))
+    );
+    pages = retrieved.filter(Boolean);
+  } else {
+    const filter = options.lastSyncTime
+      ? {
+          timestamp: "last_edited_time" as const,
+          last_edited_time: { after: options.lastSyncTime },
+        }
+      : undefined;
 
-  const pages = response.results.slice(0, limit);
+    const response = await notion.databases.query({
+      database_id: NOTION_DB,
+      filter,
+      sorts: [{ timestamp: "last_edited_time", direction: "descending" }],
+    });
+    pages = response.results.slice(0, limit);
+  }
 
   for (const page of pages) {
     const pageId = page.id.replace(/-/g, "");

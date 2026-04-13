@@ -34,6 +34,7 @@ export async function POST(request: NextRequest) {
     const stats = await syncNotionToCef(client, {
       limit: body.limit ?? 50,
       lastSyncTime: body.fullSync ? null : lastSyncTime,
+      pageIds: body.pageIds,
     });
 
     lastSyncTime = stats.completedAt;
