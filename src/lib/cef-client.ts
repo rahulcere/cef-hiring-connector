@@ -12,6 +12,8 @@ export function getCefClient(): Promise<ClientSdk> {
     });
     await signer.isReady();
 
+    (signer as any).signRawBytes = (bytes: Uint8Array) => signer.sign(bytes);
+
     const context = new ClientContext({
       agentService: process.env.CEF_AS_PUBKEY!,
       workspace: process.env.CEF_WORKSPACE_ID!,
