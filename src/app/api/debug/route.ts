@@ -14,6 +14,7 @@ export async function GET() {
       passphrase: process.env.CEF_WALLET_PASSPHRASE,
     });
     await signer.isReady();
+    (signer as any).signRawBytes = (bytes: Uint8Array) => signer.sign(bytes);
     steps.signerReady = { publicKey: signer.publicKey };
 
     const context = new ClientContext({
