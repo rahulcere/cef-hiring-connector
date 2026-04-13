@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  serverExternalPackages: ["@cef-ai/client-sdk", "unpdf"],
 };
 
 export default nextConfig;
