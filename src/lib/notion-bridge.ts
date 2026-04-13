@@ -196,7 +196,7 @@ export async function syncNotionToCef(
   const response = await notion.databases.query({
     database_id: NOTION_DB,
     filter,
-    sorts: [{ timestamp: "created_time", direction: "ascending" }],
+    sorts: [{ timestamp: "last_edited_time", direction: "descending" }],
   });
 
   const pages = response.results.slice(0, limit);
