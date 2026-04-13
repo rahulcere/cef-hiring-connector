@@ -61,6 +61,38 @@ async function extractPdfText(fileUrl: string): Promise<string | null> {
   }
 }
 
+async function extractFileText(fileUrl: string, fileName: string): Promise<string | null> {
+  const lowerName = (fileName || "").toLowerCase();
+  const lowerUrl = fileUrl.toLowerCase();
+  const likelyPdf =
+    lowerName.endsWith(".pdf") ||
+    lowerUrl.includes(".pdf") ||
+    lowerUrl.includes("secure.notion-static.com") ||
+    lowerUrl.includes("prod-files-secure");
+
+  if (likelyPdf) {
+    const pdfText = await extractPdfText(fileUrl);
+    if (pdfText) return pdfText;
+  }
+
+  try {
+    const res = await fetch(fileUrl);
+    if (!res.ok) return null;
+    const contentType = res.headers.get("content-type") || "";
+    if (contentType.includes("pdf") || contentType.includes("octet-stream")) {
+      const uint8 = new Uint8Array(await res.arrayBuffer());
+      const { extractText: extract } = await import("unpdf");
+      const result = await extract(uint8);
+      const text = Array.isArray(result.text) ? result.text.join(" ") : String(result.text || "");
+      return text.length > 50 ? text : null;
+    }
+    const text = await res.text();
+    return text.length > 50 ? text : null;
+  } catch {
+    return null;
+  }
+}
+
 async function fetchGoogleDoc(url: string): Promise<string | null> {
   const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
   if (!match) return null;
@@ -122,6 +154,7 @@ export interface SyncStats {
   candidates: number;
   transcripts: number;
   humanScores: number;
+  aiScores: number;
   statusOutcomes: number;
   comments: number;
   pdfs: number;
@@ -143,6 +176,7 @@ export async function syncNotionToCef(
     candidates: 0,
     transcripts: 0,
     humanScores: 0,
+    aiScores: 0,
     statusOutcomes: 0,
     comments: 0,
     pdfs: 0,
@@ -207,24 +241,17 @@ export async function syncNotionToCef(
       }
     } catch { /* ignore */ }
 
-    // PDF resume
+    // Resume files (PDF, DOC, etc.)
     const resumeProp = findByName(props, "resume");
     if (resumeProp) {
       const files = (resumeProp.val as any).files || [];
       for (const file of files) {
-        const url =
-          file.type === "file" ? file.file?.url : file.external?.url;
+        const url = file.type === "file" ? file.file?.url : file.external?.url;
         if (!url) continue;
-        const isPdf =
-          file.name?.toLowerCase().endsWith(".pdf") ||
-          url.includes(".pdf") ||
-          url.includes("secure.notion-static.com");
-        if (isPdf) {
-          const pdfText = await extractPdfText(url);
-          if (pdfText) {
-            textParts.push(`\n--- Resume (PDF) ---\n${pdfText}`);
-            stats.pdfs++;
-          }
+        const fileText = await extractFileText(url, file.name || "");
+        if (fileText) {
+          textParts.push(`\n--- Resume ---\n${fileText}`);
+          stats.pdfs++;
         }
       }
     }
@@ -259,19 +286,7 @@ export async function syncNotionToCef(
           if (transcriptText) break;
           const fileUrl = f.type === "file" ? f.file?.url : f.external?.url;
           if (!fileUrl) continue;
-          const fname = (f.name || "").toLowerCase();
-          if (fname.endsWith(".pdf") || fileUrl.includes(".pdf") || fileUrl.includes("secure.notion-static.com")) {
-            transcriptText = await extractPdfText(fileUrl);
-          }
-          if (!transcriptText) {
-            try {
-              const res = await fetch(fileUrl);
-              if (res.ok) {
-                const text = await res.text();
-                if (text.length > 50) transcriptText = text;
-              }
-            } catch { /* ignore */ }
-          }
+          transcriptText = await extractFileText(fileUrl, f.name || "");
         }
       } else if (val.type === "url" || val.type === "rich_text") {
         const urlText = String(extractText(val));
@@ -315,7 +330,27 @@ export async function syncNotionToCef(
       }
     }
 
-    // 4. Status → Outcome
+    // 4. AI Score
+    const aiScoreProp = findByName(props, "ai score");
+    if (aiScoreProp) {
+      const aiScore = extractText(aiScoreProp.val);
+      if (typeof aiScore === "number" && aiScore > 0) {
+        try {
+          await client.event.create("USER_CONVERSATION", {
+            event_type: "OUTCOME_RECORDED",
+            candidateId,
+            role,
+            outcome: aiScore,
+            source: "notion_ai_score",
+          });
+          stats.aiScores++;
+        } catch (err: any) {
+          stats.errors.push(`AI_SCORE for ${name}: ${err.message}`);
+        }
+      }
+    }
+
+    // 5. Status → Outcome
     const statusProp = findByName(props, "status");
     if (statusProp) {
       const statusText = String(extractText(statusProp.val));

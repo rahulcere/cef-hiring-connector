@@ -17,6 +17,7 @@ interface SyncStats {
   candidates: number;
   transcripts: number;
   humanScores: number;
+  aiScores: number;
   statusOutcomes: number;
   comments: number;
   pdfs: number;
@@ -161,8 +162,9 @@ export default function Dashboard() {
             <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-4 text-center">
               {[
                 ["Candidates", lastSync.candidates],
-                ["PDFs", lastSync.pdfs],
+                ["Resumes", lastSync.pdfs],
                 ["Transcripts", lastSync.transcripts],
+                ["AI Scores", lastSync.aiScores],
                 ["Human Scores", lastSync.humanScores],
                 ["Statuses", lastSync.statusOutcomes],
                 ["Comments", lastSync.comments],
