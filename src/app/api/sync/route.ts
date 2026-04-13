@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCefClient } from "@/lib/cef-client";
 import { syncNotionToCef } from "@/lib/notion-bridge";
 
-// In-memory sync state (resets on cold start — fine for cron)
-let lastSyncTime: string | null = null;
+// Baseline: only sync changes after this timestamp.
+// Set SYNC_BASELINE in env to anchor the start point after initial data push.
+// In-memory lastSyncTime moves forward from there with each sync.
+let lastSyncTime: string | null = process.env.SYNC_BASELINE || null;
 let lastSyncResult: any = null;
 
 export const maxDuration = 120; // 2 minutes max for Vercel
@@ -27,6 +29,12 @@ export async function POST(request: NextRequest) {
 
   if (!isVercelCron && !isManual) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Allow setting the baseline from the API
+  if (body.setBaseline) {
+    lastSyncTime = new Date().toISOString();
+    return NextResponse.json({ success: true, message: "Baseline set", lastSyncTime });
   }
 
   try {
