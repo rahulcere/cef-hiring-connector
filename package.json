@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@cef-ai/client-sdk": "^0.0.12",
-    "@notionhq/client": "^5.17.0",
+    "@notionhq/client": "^2.3.0",
     "dotenv": "^17.4.2",
     "next": "16.2.3",
     "react": "19.2.4",
