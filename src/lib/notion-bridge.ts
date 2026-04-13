@@ -160,6 +160,7 @@ export interface SyncStats {
   pdfs: number;
   skipped: number;
   errors: string[];
+  candidateLog: { name: string; resumeFiles: number; transcriptFiles: number; aiScore: number | null; humanScore: number | null }[];
   startedAt: string;
   completedAt: string;
 }
@@ -182,6 +183,7 @@ export async function syncNotionToCef(
     pdfs: 0,
     skipped: 0,
     errors: [],
+    candidateLog: [],
     startedAt: new Date().toISOString(),
     completedAt: "",
   };
@@ -240,6 +242,17 @@ export async function syncNotionToCef(
         }
       }
     } catch { /* ignore */ }
+
+    // Diagnostic: count what we find
+    const _resumePropCheck = findByName(props, "resume");
+    const _transcriptPropCheck = findByName(props, "gemini");
+    const _aiScoreCheck = findByName(props, "ai score");
+    const _humanScoreCheck = findByName(props, "human score");
+    const _resumeFileCount = _resumePropCheck ? ((_resumePropCheck.val as any).files?.length || 0) : 0;
+    const _transcriptFileCount = _transcriptPropCheck ? ((_transcriptPropCheck.val as any).files?.length || 0) : 0;
+    const _aiScoreVal = _aiScoreCheck ? ((_aiScoreCheck.val as any).number ?? null) : null;
+    const _humanScoreVal = _humanScoreCheck ? ((_humanScoreCheck.val as any).number ?? null) : null;
+    stats.candidateLog.push({ name, resumeFiles: _resumeFileCount, transcriptFiles: _transcriptFileCount, aiScore: _aiScoreVal, humanScore: _humanScoreVal });
 
     // Resume files (PDF, DOC, etc.)
     const resumeProp = findByName(props, "resume");
