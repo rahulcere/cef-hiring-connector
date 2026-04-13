@@ -12,14 +12,6 @@ export function getCefClient(): Promise<ClientSdk> {
     });
     await signer.isReady();
 
-    const wallet = {
-      get publicKey() {
-        return signer.publicKey;
-      },
-      sign: signer.sign.bind(signer),
-      signRawBytes: (bytes: Uint8Array) => signer.sign(bytes),
-    };
-
     const context = new ClientContext({
       agentService: process.env.CEF_AS_PUBKEY!,
       workspace: process.env.CEF_WORKSPACE_ID!,
@@ -31,7 +23,7 @@ export function getCefClient(): Promise<ClientSdk> {
       garUrl: process.env.CEF_GAR_URL!,
       eventRuntimeUrl: "https://events.compute.test.ddcdragon.com",
       context,
-      wallet,
+      wallet: signer,
     });
 
     try {
