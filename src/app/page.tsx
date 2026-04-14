@@ -92,9 +92,13 @@ export default function Dashboard() {
       const res = await fetch("/api/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ manual: true, fullSync, limit: 100 }),
+        body: JSON.stringify({ manual: true, fullSync, limit: fullSync ? 15 : 50 }),
       });
-      const data = await res.json();
+      const text = await res.text();
+      let data;
+      try { data = JSON.parse(text); } catch {
+        throw new Error("Sync timed out — try syncing fewer candidates or use incremental sync");
+      }
       if (data.error) throw new Error(data.error);
       setLastSync(data.stats);
       await fetchCandidates();
