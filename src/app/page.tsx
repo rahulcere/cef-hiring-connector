@@ -92,6 +92,7 @@ function formatDate(iso: string) {
 export default function Dashboard() {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingComments, setLoadingComments] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [lastSync, setLastSync] = useState<SyncStats | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -99,19 +100,47 @@ export default function Dashboard() {
   const [filter, setFilter] = useState<"all" | "withCV" | "withTranscript" | "withComments">("all");
   const [search, setSearch] = useState("");
 
+  const fetchCommentCounts = useCallback(async (list: Candidate[]) => {
+    if (list.length === 0) return;
+    setLoadingComments(true);
+    try {
+      const res = await fetch("/api/comment-counts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pageIds: list.map((c) => c.id) }),
+      });
+      const data = await res.json();
+      if (data.counts) {
+        setCandidates((prev) =>
+          prev.map((c) => ({
+            ...c,
+            hasComments: (data.counts[c.id] ?? 0) > 0,
+            commentCount: data.counts[c.id] ?? 0,
+          }))
+        );
+      }
+    } catch {
+      // ignore comment load errors
+    } finally {
+      setLoadingComments(false);
+    }
+  }, []);
+
   const fetchCandidates = useCallback(async () => {
     try {
       const res = await fetch("/api/candidates");
       const data = await res.json();
       if (data.error) throw new Error(data.error);
-      setCandidates(data.candidates || []);
+      const list: Candidate[] = data.candidates || [];
+      setCandidates(list);
       setError(null);
+      fetchCommentCounts(list);
     } catch (err: any) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [fetchCommentCounts]);
 
   const fetchHealth = useCallback(async () => {
     try {
@@ -248,7 +277,7 @@ export default function Dashboard() {
               { label: "With Transcript", value: withTranscript, color: "text-blue-400" },
               { label: "AI Scored", value: withAiScore, color: "text-purple-400" },
               { label: "Human Scored", value: withHumanScore, color: "text-amber-400" },
-              { label: "With Comments", value: withComments, color: "text-sky-400" },
+              { label: "With Comments", value: loadingComments ? "…" : withComments, color: "text-sky-400" },
             ].map(({ label, value, color }) => (
               <div key={label} className="p-4 rounded-lg bg-gray-900 border border-gray-800 text-center">
                 <div className={`text-3xl font-bold ${color}`}>{value}</div>
@@ -344,8 +373,8 @@ export default function Dashboard() {
                       <div className="flex items-center gap-2 justify-center">
                         <DataBadge has={c.hasResume} label="CV" />
                         <DataBadge has={c.hasTranscript} label="IV" />
-                        <span className={`inline-flex items-center gap-1 text-xs ${c.hasComments ? "text-sky-400" : "text-gray-600"}`}>
-                          {c.hasComments ? `✓ ${c.commentCount}💬` : "✗ 💬"}
+                        <span className={`inline-flex items-center gap-1 text-xs ${c.hasComments ? "text-sky-400" : loadingComments ? "text-gray-600" : "text-gray-600"}`}>
+                          {loadingComments && !c.hasComments ? "···" : c.hasComments ? `✓ ${c.commentCount}💬` : "✗ 💬"}
                         </span>
                       </div>
                     </td>
