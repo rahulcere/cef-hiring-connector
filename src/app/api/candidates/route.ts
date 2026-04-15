@@ -63,9 +63,9 @@ export async function GET() {
 
     return NextResponse.json({ candidates, count: candidates.length });
   } catch (err: any) {
+    console.error("candidates route error:", err.message);
     return NextResponse.json(
-      { error: err.message, candidates: [], count: 0 },
-      { status: 500 }
+      { error: err.message, candidates: [], count: 0 }
     );
   }
 }

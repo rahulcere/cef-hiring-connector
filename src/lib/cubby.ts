@@ -29,9 +29,10 @@ export interface CandidateRow {
 }
 
 export async function getAllCandidates(): Promise<CandidateRow[]> {
+  // Use only columns confirmed in the nodes schema (no timestamp columns)
   const result = await cubbyQuery(
-    `SELECT id, label, type, role, stage, composite_score, outcome, properties, created_at
-     FROM nodes WHERE type = 'candidate' ORDER BY created_at DESC`
+    `SELECT id, label, type, role, stage, composite_score, outcome, properties
+     FROM nodes WHERE type = 'candidate'`
   );
   if (!result.rows) return [];
   const cols: string[] = result.columns || [];
@@ -42,6 +43,11 @@ export async function getAllCandidates(): Promise<CandidateRow[]> {
     });
     if (typeof obj.properties === "string") {
       try { obj.properties = JSON.parse(obj.properties as string); } catch { obj.properties = {}; }
+    }
+    // Fall back: try to get created_at from properties if it exists
+    if (!obj.created_at) {
+      const props = obj.properties as any;
+      obj.created_at = props?.created_at || props?.synced_at || "";
     }
     return obj as unknown as CandidateRow;
   });
