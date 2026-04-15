@@ -4,13 +4,17 @@ import { useEffect, useState, useCallback } from "react";
 
 interface Candidate {
   id: string;
-  label: string;
+  name: string;
   role: string;
-  stage: string;
-  composite_score: number | null;
-  outcome: string | null;
-  properties: Record<string, any>;
-  updated_at: string;
+  status: string;
+  aiScore: number | null;
+  humanScore: number | null;
+  hasResume: boolean;
+  resumeFiles: number;
+  hasTranscript: boolean;
+  lastEdited: string;
+  createdTime: string;
+  notionUrl: string;
 }
 
 interface SyncStats {
@@ -27,34 +31,55 @@ interface SyncStats {
   completedAt: string;
 }
 
-function ScoreBadge({ score }: { score: number | null }) {
-  if (score === null || score === undefined) return <span className="text-gray-400">—</span>;
+function ScoreBadge({ score, label }: { score: number | null; label?: string }) {
+  if (score === null || score === undefined) return <span className="text-gray-500">—</span>;
   const n = Number(score);
   const color =
-    n >= 7 ? "bg-emerald-100 text-emerald-800" :
-    n >= 5 ? "bg-amber-100 text-amber-800" :
-    "bg-red-100 text-red-800";
+    n >= 7 ? "bg-emerald-900/60 text-emerald-300 border-emerald-700/50" :
+    n >= 5 ? "bg-amber-900/60 text-amber-300 border-amber-700/50" :
+    "bg-red-900/60 text-red-300 border-red-700/50";
   return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-semibold ${color}`}>
-      {n.toFixed(1)}
+    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold border ${color}`}>
+      {label ? `${label}: ` : ""}{n}
     </span>
   );
 }
 
-function StageBadge({ stage }: { stage: string }) {
-  if (!stage) return null;
-  const colors: Record<string, string> = {
-    new: "bg-blue-100 text-blue-800",
-    interview: "bg-purple-100 text-purple-800",
-    hired: "bg-emerald-100 text-emerald-800",
-    rejected: "bg-red-100 text-red-800",
-    trial: "bg-amber-100 text-amber-800",
-  };
+function StatusBadge({ status }: { status: string }) {
+  if (!status || status === "—") return <span className="text-gray-500">—</span>;
+  const lower = status.toLowerCase();
+  const color =
+    lower.includes("accept") || lower.includes("hired") ? "bg-emerald-900/60 text-emerald-300 border-emerald-700/50" :
+    lower.includes("trial") ? "bg-blue-900/60 text-blue-300 border-blue-700/50" :
+    lower.includes("reject") ? "bg-red-900/60 text-red-300 border-red-700/50" :
+    lower.includes("screen") || lower.includes("interview") ? "bg-purple-900/60 text-purple-300 border-purple-700/50" :
+    "bg-gray-800 text-gray-300 border-gray-700/50";
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${colors[stage] || "bg-gray-100 text-gray-800"}`}>
-      {stage}
+    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${color}`}>
+      {status}
     </span>
   );
+}
+
+function DataBadge({ has, label }: { has: boolean; label: string }) {
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs ${has ? "text-emerald-400" : "text-gray-600"}`}>
+      {has ? "✓" : "✗"} {label}
+    </span>
+  );
+}
+
+function formatDate(iso: string) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  const diffHrs = Math.floor(diffMs / 3600000);
+  if (diffHrs < 1) return "just now";
+  if (diffHrs < 24) return `${diffHrs}h ago`;
+  const diffDays = Math.floor(diffHrs / 24);
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 export default function Dashboard() {
@@ -64,6 +89,8 @@ export default function Dashboard() {
   const [lastSync, setLastSync] = useState<SyncStats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [health, setHealth] = useState<any>(null);
+  const [filter, setFilter] = useState<"all" | "withCV" | "withTranscript">("all");
+  const [search, setSearch] = useState("");
 
   const fetchCandidates = useCallback(async () => {
     try {
@@ -88,6 +115,7 @@ export default function Dashboard() {
 
   const triggerSync = async (fullSync = false) => {
     setSyncing(true);
+    setError(null);
     try {
       const res = await fetch("/api/sync", {
         method: "POST",
@@ -116,10 +144,25 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, [fetchCandidates, fetchHealth]);
 
+  const filtered = candidates.filter((c) => {
+    if (filter === "withCV" && !c.hasResume) return false;
+    if (filter === "withTranscript" && !c.hasTranscript) return false;
+    if (search) {
+      const q = search.toLowerCase();
+      return c.name.toLowerCase().includes(q) || c.role.toLowerCase().includes(q);
+    }
+    return true;
+  });
+
+  const withCV = candidates.filter((c) => c.hasResume).length;
+  const withTranscript = candidates.filter((c) => c.hasTranscript).length;
+  const withAiScore = candidates.filter((c) => c.aiScore !== null).length;
+  const withHumanScore = candidates.filter((c) => c.humanScore !== null).length;
+
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100">
-      <header className="border-b border-gray-800 bg-gray-900/50 backdrop-blur">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+      <header className="border-b border-gray-800 bg-gray-900/50 backdrop-blur sticky top-0 z-10">
+        <div className="max-w-[1400px] mx-auto px-6 py-4 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold tracking-tight">CEF Hiring Connector</h1>
             <p className="text-sm text-gray-400 mt-0.5">
@@ -153,7 +196,7 @@ export default function Dashboard() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-6 py-8">
+      <main className="max-w-[1400px] mx-auto px-6 py-8">
         {error && (
           <div className="mb-6 p-4 rounded-lg bg-red-900/30 border border-red-800 text-red-200 text-sm">
             {error}
@@ -163,7 +206,7 @@ export default function Dashboard() {
         {lastSync && (
           <div className="mb-6 p-4 rounded-lg bg-gray-900 border border-gray-800">
             <h3 className="text-sm font-semibold text-gray-300 mb-2">Last Sync Result</h3>
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-4 text-center">
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-4 text-center">
               {[
                 ["Candidates", lastSync.candidates],
                 ["Resumes", lastSync.pdfs],
@@ -188,51 +231,115 @@ export default function Dashboard() {
           </div>
         )}
 
+        {!loading && (
+          <div className="mb-6 grid grid-cols-2 sm:grid-cols-5 gap-4">
+            <div className="p-4 rounded-lg bg-gray-900 border border-gray-800 text-center">
+              <div className="text-3xl font-bold text-white">{candidates.length}</div>
+              <div className="text-xs text-gray-400 mt-1">Total Candidates</div>
+            </div>
+            <div className="p-4 rounded-lg bg-gray-900 border border-gray-800 text-center">
+              <div className="text-3xl font-bold text-emerald-400">{withCV}</div>
+              <div className="text-xs text-gray-400 mt-1">With CV</div>
+            </div>
+            <div className="p-4 rounded-lg bg-gray-900 border border-gray-800 text-center">
+              <div className="text-3xl font-bold text-blue-400">{withTranscript}</div>
+              <div className="text-xs text-gray-400 mt-1">With Transcript</div>
+            </div>
+            <div className="p-4 rounded-lg bg-gray-900 border border-gray-800 text-center">
+              <div className="text-3xl font-bold text-purple-400">{withAiScore}</div>
+              <div className="text-xs text-gray-400 mt-1">AI Scored</div>
+            </div>
+            <div className="p-4 rounded-lg bg-gray-900 border border-gray-800 text-center">
+              <div className="text-3xl font-bold text-amber-400">{withHumanScore}</div>
+              <div className="text-xs text-gray-400 mt-1">Human Scored</div>
+            </div>
+          </div>
+        )}
+
+        {!loading && candidates.length > 0 && (
+          <div className="mb-4 flex flex-wrap items-center gap-3">
+            <input
+              type="text"
+              placeholder="Search by name or role..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-sm text-gray-200 placeholder-gray-500 w-64 focus:outline-none focus:border-blue-500"
+            />
+            <div className="flex gap-1">
+              {(["all", "withCV", "withTranscript"] as const).map((f) => (
+                <button
+                  key={f}
+                  onClick={() => setFilter(f)}
+                  className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${
+                    filter === f
+                      ? "bg-blue-600 text-white"
+                      : "bg-gray-800 text-gray-400 hover:bg-gray-700"
+                  }`}
+                >
+                  {f === "all" ? "All" : f === "withCV" ? "Has CV" : "Has Transcript"}
+                </button>
+              ))}
+            </div>
+            <span className="text-xs text-gray-500 ml-auto">
+              Showing {filtered.length} of {candidates.length}
+            </span>
+          </div>
+        )}
+
         {loading ? (
-          <div className="text-center py-20 text-gray-500">Loading candidates...</div>
+          <div className="text-center py-20 text-gray-500">Loading candidates from Notion...</div>
         ) : candidates.length === 0 ? (
           <div className="text-center py-20">
-            <p className="text-gray-400 text-lg">No candidates yet</p>
-            <p className="text-gray-600 mt-2">Click "Sync Now" to pull candidates from Notion</p>
+            <p className="text-gray-400 text-lg">No candidates found in Notion</p>
+            <p className="text-gray-600 mt-2">Check that the Notion database ID is correct</p>
           </div>
         ) : (
-          <div className="overflow-hidden rounded-xl border border-gray-800">
+          <div className="overflow-x-auto rounded-xl border border-gray-800">
             <table className="w-full">
               <thead>
                 <tr className="bg-gray-900/80">
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">#</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Candidate</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Role</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">Score</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">Stage</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Top Skills</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">DNA</th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider">Updated</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">Status</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">AI Score</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">Human Score</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">Data</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider">Last Updated</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-800/50">
-                {candidates.map((c) => (
+                {filtered.map((c, i) => (
                   <tr key={c.id} className="hover:bg-gray-900/40 transition-colors">
+                    <td className="px-4 py-3 text-xs text-gray-600">{i + 1}</td>
                     <td className="px-4 py-3">
-                      <div className="font-medium text-white">{c.label || c.id}</div>
-                      <div className="text-xs text-gray-500 font-mono">{c.id}</div>
+                      <a
+                        href={c.notionUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-medium text-white hover:text-blue-400 transition-colors"
+                      >
+                        {c.name || "Unnamed"}
+                      </a>
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-300">{c.role || "—"}</td>
+                    <td className="px-4 py-3 text-sm text-gray-300">{c.role}</td>
                     <td className="px-4 py-3 text-center">
-                      <ScoreBadge score={c.composite_score ?? c.properties?.composite_score ?? null} />
+                      <StatusBadge status={c.status} />
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <StageBadge stage={c.stage || (c.properties?.stage as string) || ""} />
+                      <ScoreBadge score={c.aiScore} />
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-400 max-w-[200px] truncate">
-                      {c.properties?.skill_categories
-                        ? (c.properties.skill_categories as any[]).slice(0, 3).map((s: any) => typeof s === "string" ? s : s.name || s.category).join(", ")
-                        : "—"}
+                    <td className="px-4 py-3 text-center">
+                      <ScoreBadge score={c.humanScore} />
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-400 max-w-[200px] truncate">
-                      {(c.properties?.profile_dna as string) || "—"}
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3 justify-center">
+                        <DataBadge has={c.hasResume} label="CV" />
+                        <DataBadge has={c.hasTranscript} label="Transcript" />
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-right text-xs text-gray-500">
-                      {c.updated_at ? new Date(c.updated_at).toLocaleDateString() : "—"}
+                      {formatDate(c.lastEdited)}
                     </td>
                   </tr>
                 ))}
@@ -242,7 +349,7 @@ export default function Dashboard() {
         )}
 
         <div className="mt-4 text-center text-xs text-gray-600">
-          {candidates.length} candidates · Auto-refreshes every 30s · Cron syncs every 15min
+          {candidates.length} candidates from Notion · Auto-refreshes every 30s · Events pushed to CEF pipeline
         </div>
       </main>
     </div>
