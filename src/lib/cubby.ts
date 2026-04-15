@@ -26,13 +26,12 @@ export interface CandidateRow {
   outcome: string | null;
   properties: Record<string, unknown>;
   created_at: string;
-  updated_at: string;
 }
 
 export async function getAllCandidates(): Promise<CandidateRow[]> {
   const result = await cubbyQuery(
-    `SELECT id, label, type, role, stage, composite_score, outcome, properties, created_at, updated_at
-     FROM nodes WHERE type = 'candidate' ORDER BY updated_at DESC`
+    `SELECT id, label, type, role, stage, composite_score, outcome, properties, created_at
+     FROM nodes WHERE type = 'candidate' ORDER BY created_at DESC`
   );
   if (!result.rows) return [];
   const cols: string[] = result.columns || [];

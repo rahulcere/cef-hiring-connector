@@ -57,8 +57,7 @@ export async function GET() {
         interviewAvg: props?.score_components?.interview_avg ?? null,
         formula: props?.score_components?.formula ?? null,
         notionUrl,
-        syncedAt: c.updated_at,
-        createdAt: c.created_at,
+        syncedAt: c.created_at,
       };
     });
 
