@@ -41,18 +41,15 @@ function findByType(properties: any, type: string) {
 
 export async function GET(request: Request) {
   try {
-    let allPages: any[] = [];
-    let cursor: string | undefined;
+    const { searchParams } = new URL(request.url);
+    const pageSize = Math.min(Number(searchParams.get("limit") || 100), 100);
 
-    do {
-      const response: any = await notion.databases.query({
-        database_id: NOTION_DB,
-        start_cursor: cursor,
-        sorts: [{ timestamp: "last_edited_time", direction: "descending" }],
-      });
-      allPages = allPages.concat(response.results);
-      cursor = response.has_more ? response.next_cursor : undefined;
-    } while (cursor);
+    const response: any = await notion.databases.query({
+      database_id: NOTION_DB,
+      page_size: pageSize,
+      sorts: [{ timestamp: "last_edited_time", direction: "descending" }],
+    });
+    const allPages = response.results;
 
     const candidates = allPages
       .filter((page: any) => "properties" in page)
