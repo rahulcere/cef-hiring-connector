@@ -39,31 +39,6 @@ function findByType(properties: any, type: string) {
   return null;
 }
 
-async function fetchCommentCount(pageId: string): Promise<number> {
-  try {
-    const res = await notion.comments.list({ block_id: pageId });
-    return res.results.length;
-  } catch {
-    return 0;
-  }
-}
-
-// Fetch comments 10 at a time to avoid Notion rate limits (~3 req/s)
-async function batchFetchComments(pageIds: string[]): Promise<number[]> {
-  const BATCH = 10;
-  const DELAY = 150; // ms between batches
-  const results: number[] = new Array(pageIds.length).fill(0);
-
-  for (let i = 0; i < pageIds.length; i += BATCH) {
-    const batch = pageIds.slice(i, i + BATCH);
-    const counts = await Promise.all(batch.map((id) => fetchCommentCount(id)));
-    counts.forEach((n, j) => { results[i + j] = n; });
-    if (i + BATCH < pageIds.length) {
-      await new Promise((r) => setTimeout(r, DELAY));
-    }
-  }
-  return results;
-}
 
 export async function GET() {
   try {
@@ -127,14 +102,6 @@ export async function GET() {
         createdTime: page.created_time,
         notionUrl: `https://notion.so/${page.id.replace(/-/g, "")}`,
       };
-    });
-
-    // Fetch comment counts for all candidates (batched to respect rate limits)
-    const pageIds = candidates.map((c) => c.id);
-    const commentCounts = await batchFetchComments(pageIds);
-    commentCounts.forEach((count, i) => {
-      candidates[i].commentCount = count;
-      candidates[i].hasComments = count > 0;
     });
 
     return NextResponse.json({ candidates, count: candidates.length });

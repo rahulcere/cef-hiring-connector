@@ -87,6 +87,7 @@ function formatDate(iso: string) {
 export default function Dashboard() {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingComments, setLoadingComments] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [lastSync, setLastSync] = useState<SyncStats | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -94,19 +95,48 @@ export default function Dashboard() {
   const [filter, setFilter] = useState<"all" | "withCV" | "withTranscript" | "withComments">("all");
   const [search, setSearch] = useState("");
 
+  const fetchCommentCounts = useCallback(async (loaded: Candidate[]) => {
+    if (loaded.length === 0) return;
+    setLoadingComments(true);
+    try {
+      const res = await fetch("/api/comment-counts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pageIds: loaded.map((c) => c.id) }),
+      });
+      const data = await res.json();
+      if (data.counts) {
+        setCandidates((prev) =>
+          prev.map((c) => ({
+            ...c,
+            commentCount: data.counts[c.id] ?? 0,
+            hasComments: (data.counts[c.id] ?? 0) > 0,
+          }))
+        );
+      }
+    } catch {
+      // comment counts are best-effort — silently skip on failure
+    } finally {
+      setLoadingComments(false);
+    }
+  }, []);
+
   const fetchCandidates = useCallback(async () => {
     try {
       const res = await fetch("/api/candidates");
       const data = await res.json();
       if (data.error) throw new Error(data.error);
-      setCandidates(data.candidates || []);
+      const loaded = data.candidates || [];
+      setCandidates(loaded);
       setError(null);
+      // Fetch comment counts in background after candidates render
+      fetchCommentCounts(loaded);
     } catch (err: any) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [fetchCommentCounts]);
 
   const fetchHealth = useCallback(async () => {
     try {
@@ -258,7 +288,9 @@ export default function Dashboard() {
               <div className="text-xs text-gray-400 mt-1">Human Scored</div>
             </div>
             <div className="p-4 rounded-lg bg-gray-900 border border-gray-800 text-center">
-              <div className="text-3xl font-bold text-sky-400">{withComments}</div>
+              <div className="text-3xl font-bold text-sky-400">
+                {loadingComments ? <span className="text-gray-500 text-lg">…</span> : withComments}
+              </div>
               <div className="text-xs text-gray-400 mt-1">With Comments</div>
             </div>
           </div>
@@ -344,9 +376,13 @@ export default function Dashboard() {
                       <div className="flex items-center gap-3 justify-center">
                         <DataBadge has={c.hasResume} label="CV" />
                         <DataBadge has={c.hasTranscript} label="Transcript" />
-                        <span className={`inline-flex items-center gap-1 text-xs ${c.hasComments ? "text-sky-400" : "text-gray-600"}`}>
-                          {c.hasComments ? "✓" : "✗"} {c.hasComments ? `${c.commentCount} Comment${c.commentCount !== 1 ? "s" : ""}` : "No Comments"}
-                        </span>
+                        {loadingComments ? (
+                          <span className="text-xs text-gray-600">···</span>
+                        ) : (
+                          <span className={`inline-flex items-center gap-1 text-xs ${c.hasComments ? "text-sky-400" : "text-gray-600"}`}>
+                            {c.hasComments ? "✓" : "✗"} {c.hasComments ? `${c.commentCount} Comment${c.commentCount !== 1 ? "s" : ""}` : "No Comments"}
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className="px-4 py-3 text-right text-xs text-gray-500">
