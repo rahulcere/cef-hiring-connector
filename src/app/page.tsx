@@ -6,17 +6,18 @@ interface Candidate {
   id: string;
   name: string;
   role: string;
-  status: string;
+  stage: string;
   aiScore: number | null;
   humanScore: number | null;
   hasResume: boolean;
-  resumeFiles: number;
   hasTranscript: boolean;
   hasComments: boolean;
   commentCount: number;
-  lastEdited: string;
-  createdTime: string;
+  cvScore: number | null;
+  interviewAvg: number | null;
+  formula: string | null;
   notionUrl: string;
+  syncedAt: string;
 }
 
 interface SyncStats {
@@ -33,7 +34,7 @@ interface SyncStats {
   completedAt: string;
 }
 
-function ScoreBadge({ score, label }: { score: number | null; label?: string }) {
+function ScoreBadge({ score }: { score: number | null }) {
   if (score === null || score === undefined) return <span className="text-gray-500">—</span>;
   const n = Number(score);
   const color =
@@ -42,23 +43,27 @@ function ScoreBadge({ score, label }: { score: number | null; label?: string }) 
     "bg-red-900/60 text-red-300 border-red-700/50";
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold border ${color}`}>
-      {label ? `${label}: ` : ""}{n}
+      {n.toFixed(1)}
     </span>
   );
 }
 
-function StatusBadge({ status }: { status: string }) {
-  if (!status || status === "—") return <span className="text-gray-500">—</span>;
-  const lower = status.toLowerCase();
+function StageBadge({ stage }: { stage: string }) {
+  if (!stage || stage === "—") return <span className="text-gray-500">—</span>;
+  const lower = stage.toLowerCase();
   const color =
-    lower.includes("accept") || lower.includes("hired") ? "bg-emerald-900/60 text-emerald-300 border-emerald-700/50" :
-    lower.includes("trial") ? "bg-blue-900/60 text-blue-300 border-blue-700/50" :
-    lower.includes("reject") ? "bg-red-900/60 text-red-300 border-red-700/50" :
-    lower.includes("screen") || lower.includes("interview") ? "bg-purple-900/60 text-purple-300 border-purple-700/50" :
-    "bg-gray-800 text-gray-300 border-gray-700/50";
+    lower === "hired" ? "bg-emerald-900/60 text-emerald-300 border-emerald-700/50" :
+    lower === "trial" ? "bg-blue-900/60 text-blue-300 border-blue-700/50" :
+    lower === "rejected" ? "bg-red-900/60 text-red-300 border-red-700/50" :
+    lower === "interview" ? "bg-purple-900/60 text-purple-300 border-purple-700/50" :
+    lower === "ai_scored" ? "bg-gray-800 text-gray-300 border-gray-700/50" :
+    "bg-gray-800 text-gray-400 border-gray-700/50";
+  const label =
+    lower === "ai_scored" ? "AI Scored" :
+    stage.charAt(0).toUpperCase() + stage.slice(1);
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${color}`}>
-      {status}
+      {label}
     </span>
   );
 }
@@ -87,7 +92,6 @@ function formatDate(iso: string) {
 export default function Dashboard() {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [loading, setLoading] = useState(true);
-  const [loadingComments, setLoadingComments] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [lastSync, setLastSync] = useState<SyncStats | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -95,48 +99,19 @@ export default function Dashboard() {
   const [filter, setFilter] = useState<"all" | "withCV" | "withTranscript" | "withComments">("all");
   const [search, setSearch] = useState("");
 
-  const fetchCommentCounts = useCallback(async (loaded: Candidate[]) => {
-    if (loaded.length === 0) return;
-    setLoadingComments(true);
-    try {
-      const res = await fetch("/api/comment-counts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pageIds: loaded.map((c) => c.id) }),
-      });
-      const data = await res.json();
-      if (data.counts) {
-        setCandidates((prev) =>
-          prev.map((c) => ({
-            ...c,
-            commentCount: data.counts[c.id] ?? 0,
-            hasComments: (data.counts[c.id] ?? 0) > 0,
-          }))
-        );
-      }
-    } catch {
-      // comment counts are best-effort — silently skip on failure
-    } finally {
-      setLoadingComments(false);
-    }
-  }, []);
-
   const fetchCandidates = useCallback(async () => {
     try {
       const res = await fetch("/api/candidates");
       const data = await res.json();
       if (data.error) throw new Error(data.error);
-      const loaded = data.candidates || [];
-      setCandidates(loaded);
+      setCandidates(data.candidates || []);
       setError(null);
-      // Fetch comment counts in background after candidates render
-      fetchCommentCounts(loaded);
     } catch (err: any) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [fetchCommentCounts]);
+  }, []);
 
   const fetchHealth = useCallback(async () => {
     try {
@@ -267,32 +242,19 @@ export default function Dashboard() {
 
         {!loading && (
           <div className="mb-6 grid grid-cols-3 sm:grid-cols-6 gap-4">
-            <div className="p-4 rounded-lg bg-gray-900 border border-gray-800 text-center">
-              <div className="text-3xl font-bold text-white">{candidates.length}</div>
-              <div className="text-xs text-gray-400 mt-1">Total Candidates</div>
-            </div>
-            <div className="p-4 rounded-lg bg-gray-900 border border-gray-800 text-center">
-              <div className="text-3xl font-bold text-emerald-400">{withCV}</div>
-              <div className="text-xs text-gray-400 mt-1">With CV</div>
-            </div>
-            <div className="p-4 rounded-lg bg-gray-900 border border-gray-800 text-center">
-              <div className="text-3xl font-bold text-blue-400">{withTranscript}</div>
-              <div className="text-xs text-gray-400 mt-1">With Transcript</div>
-            </div>
-            <div className="p-4 rounded-lg bg-gray-900 border border-gray-800 text-center">
-              <div className="text-3xl font-bold text-purple-400">{withAiScore}</div>
-              <div className="text-xs text-gray-400 mt-1">AI Scored</div>
-            </div>
-            <div className="p-4 rounded-lg bg-gray-900 border border-gray-800 text-center">
-              <div className="text-3xl font-bold text-amber-400">{withHumanScore}</div>
-              <div className="text-xs text-gray-400 mt-1">Human Scored</div>
-            </div>
-            <div className="p-4 rounded-lg bg-gray-900 border border-gray-800 text-center">
-              <div className="text-3xl font-bold text-sky-400">
-                {loadingComments ? <span className="text-gray-500 text-lg">…</span> : withComments}
+            {[
+              { label: "Synced", value: candidates.length, color: "text-white" },
+              { label: "With CV", value: withCV, color: "text-emerald-400" },
+              { label: "With Transcript", value: withTranscript, color: "text-blue-400" },
+              { label: "AI Scored", value: withAiScore, color: "text-purple-400" },
+              { label: "Human Scored", value: withHumanScore, color: "text-amber-400" },
+              { label: "With Comments", value: withComments, color: "text-sky-400" },
+            ].map(({ label, value, color }) => (
+              <div key={label} className="p-4 rounded-lg bg-gray-900 border border-gray-800 text-center">
+                <div className={`text-3xl font-bold ${color}`}>{value}</div>
+                <div className="text-xs text-gray-400 mt-1">{label}</div>
               </div>
-              <div className="text-xs text-gray-400 mt-1">With Comments</div>
-            </div>
+            ))}
           </div>
         )}
 
@@ -311,9 +273,7 @@ export default function Dashboard() {
                   key={f}
                   onClick={() => setFilter(f)}
                   className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${
-                    filter === f
-                      ? "bg-blue-600 text-white"
-                      : "bg-gray-800 text-gray-400 hover:bg-gray-700"
+                    filter === f ? "bg-blue-600 text-white" : "bg-gray-800 text-gray-400 hover:bg-gray-700"
                   }`}
                 >
                   {f === "all" ? "All" : f === "withCV" ? "Has CV" : f === "withTranscript" ? "Has Transcript" : "Has Comments"}
@@ -327,11 +287,11 @@ export default function Dashboard() {
         )}
 
         {loading ? (
-          <div className="text-center py-20 text-gray-500">Loading candidates from Notion...</div>
+          <div className="text-center py-20 text-gray-500">Loading synced candidates...</div>
         ) : candidates.length === 0 ? (
           <div className="text-center py-20">
-            <p className="text-gray-400 text-lg">No candidates found in Notion</p>
-            <p className="text-gray-600 mt-2">Check that the Notion database ID is correct</p>
+            <p className="text-gray-400 text-lg">No synced candidates yet</p>
+            <p className="text-gray-600 mt-2">Click "Sync Now" to push candidates from Notion through the CEF pipeline</p>
           </div>
         ) : (
           <div className="overflow-x-auto rounded-xl border border-gray-800">
@@ -341,11 +301,12 @@ export default function Dashboard() {
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">#</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Candidate</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Role</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">Status</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">Stage</th>
                   <th className="px-4 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">AI Score</th>
                   <th className="px-4 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">Human Score</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Score Breakdown</th>
                   <th className="px-4 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">Data</th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider">Last Updated</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider">Synced</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-800/50">
@@ -359,12 +320,12 @@ export default function Dashboard() {
                         rel="noopener noreferrer"
                         className="font-medium text-white hover:text-blue-400 transition-colors"
                       >
-                        {c.name || "Unnamed"}
+                        {c.name}
                       </a>
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-300">{c.role}</td>
                     <td className="px-4 py-3 text-center">
-                      <StatusBadge status={c.status} />
+                      <StageBadge stage={c.stage} />
                     </td>
                     <td className="px-4 py-3 text-center">
                       <ScoreBadge score={c.aiScore} />
@@ -373,20 +334,23 @@ export default function Dashboard() {
                       <ScoreBadge score={c.humanScore} />
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-3 justify-center">
+                      <div className="flex items-center gap-2 text-xs text-gray-500">
+                        {c.cvScore !== null && <span>CV: <span className="text-gray-300">{Number(c.cvScore).toFixed(1)}</span></span>}
+                        {c.interviewAvg !== null && <span>IV: <span className="text-gray-300">{Number(c.interviewAvg).toFixed(1)}</span></span>}
+                        {c.formula && <span className="text-gray-600 truncate max-w-[120px]">{c.formula}</span>}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2 justify-center">
                         <DataBadge has={c.hasResume} label="CV" />
-                        <DataBadge has={c.hasTranscript} label="Transcript" />
-                        {loadingComments ? (
-                          <span className="text-xs text-gray-600">···</span>
-                        ) : (
-                          <span className={`inline-flex items-center gap-1 text-xs ${c.hasComments ? "text-sky-400" : "text-gray-600"}`}>
-                            {c.hasComments ? "✓" : "✗"} {c.hasComments ? `${c.commentCount} Comment${c.commentCount !== 1 ? "s" : ""}` : "No Comments"}
-                          </span>
-                        )}
+                        <DataBadge has={c.hasTranscript} label="IV" />
+                        <span className={`inline-flex items-center gap-1 text-xs ${c.hasComments ? "text-sky-400" : "text-gray-600"}`}>
+                          {c.hasComments ? `✓ ${c.commentCount}💬` : "✗ 💬"}
+                        </span>
                       </div>
                     </td>
                     <td className="px-4 py-3 text-right text-xs text-gray-500">
-                      {formatDate(c.lastEdited)}
+                      {formatDate(c.syncedAt)}
                     </td>
                   </tr>
                 ))}
@@ -396,7 +360,7 @@ export default function Dashboard() {
         )}
 
         <div className="mt-4 text-center text-xs text-gray-600">
-          {candidates.length} candidates from Notion · Auto-refreshes every 30s · Events pushed to CEF pipeline
+          {candidates.length} candidates synced to CEF pipeline · Auto-refreshes every 30s
         </div>
       </main>
     </div>
