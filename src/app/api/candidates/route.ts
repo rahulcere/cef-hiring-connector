@@ -2,10 +2,8 @@ import { NextResponse } from "next/server";
 import { Client } from "@notionhq/client";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 30;
-
-const notion = new Client({ auth: process.env.NOTION_API_KEY });
-const NOTION_DB = process.env.NOTION_DATABASE_ID!;
+// Stay within Vercel Hobby 10s hard limit
+export const maxDuration = 10;
 
 function extractText(prop: any): string | number | null {
   if (!prop) return null;
@@ -28,16 +26,23 @@ function findByName(properties: Record<string, any>, name: string) {
   return null;
 }
 
-function getFiles(properties: Record<string, any>, ...names: string[]): any[] {
-  for (const name of names) {
+function getResumeFiles(properties: Record<string, any>): any[] {
+  for (const name of ["resume", "cv", "curriculum"]) {
     const prop = findByName(properties, name);
     if (prop?.type === "files" && prop.files?.length > 0) return prop.files;
   }
-  // Also check all files-type properties
-  for (const val of Object.values(properties) as any[]) {
-    if (val?.type === "files" && val.files?.length > 0) return val.files;
-  }
   return [];
+}
+
+function hasTranscriptData(properties: Record<string, any>): boolean {
+  for (const name of ["gemini", "transcript", "interview note"]) {
+    const prop = findByName(properties, name);
+    if (!prop) continue;
+    if (prop.type === "files" && prop.files?.length > 0) return true;
+    if (prop.type === "url" && prop.url) return true;
+    if (prop.type === "rich_text" && prop.rich_text?.[0]?.plain_text) return true;
+  }
+  return false;
 }
 
 function statusToStage(status: string | null): string {
@@ -51,11 +56,70 @@ function statusToStage(status: string | null): string {
   return lower.replace(/\s+/g, "_");
 }
 
+function mapPage(page: any) {
+  const props = page.properties || {};
+  const pageId: string = page.id;
+
+  // Name
+  let name = "";
+  for (const val of Object.values(props) as any[]) {
+    if (val?.type === "title") {
+      name = val.title?.map((t: any) => t.plain_text).join("") || "";
+      if (name) break;
+    }
+  }
+
+  // Role
+  const roleProp = findByName(props, "role") || findByName(props, "position");
+  const role = roleProp ? String(extractText(roleProp) ?? "") : "";
+
+  // Stage
+  const stageProp = findByName(props, "status") || findByName(props, "stage");
+  const stage = statusToStage(stageProp ? String(extractText(stageProp) ?? "") : null);
+
+  // Scores
+  const aiScoreProp = findByName(props, "ai score") || findByName(props, "ai_score");
+  const aiScore = aiScoreProp ? (extractText(aiScoreProp) as number | null) : null;
+
+  const humanScoreProp =
+    findByName(props, "human score") ||
+    findByName(props, "human_score") ||
+    findByName(props, "outcome");
+  const humanScore = humanScoreProp ? (extractText(humanScoreProp) as number | null) : null;
+
+  const resumeFiles = getResumeFiles(props);
+  const hasTranscript = hasTranscriptData(props);
+
+  return {
+    id: pageId,
+    name: name || pageId,
+    role: role || "—",
+    stage,
+    aiScore: typeof aiScore === "number" ? aiScore : null,
+    humanScore: typeof humanScore === "number" ? humanScore : null,
+    hasResume: resumeFiles.length > 0,
+    resumeFiles: resumeFiles.length,
+    hasTranscript,
+    hasComments: false,
+    commentCount: 0,
+    cvScore: null,
+    interviewAvg: null,
+    formula: null,
+    notionUrl: `https://notion.so/${pageId.replace(/-/g, "")}`,
+    syncedAt: page.last_edited_time || "",
+  };
+}
+
 export async function GET() {
   try {
-    // Paginate through all Notion results
+    const notion = new Client({ auth: process.env.NOTION_API_KEY });
+    const NOTION_DB = process.env.NOTION_DATABASE_ID!;
+
+    // Fetch up to 3 pages (300 candidates) — fast enough to stay under 10s
+    const MAX_PAGES = 3;
     const allPages: any[] = [];
     let cursor: string | undefined = undefined;
+    let pagesFetched = 0;
 
     do {
       const response: any = await notion.databases.query({
@@ -66,81 +130,11 @@ export async function GET() {
       });
       allPages.push(...response.results);
       cursor = response.has_more ? response.next_cursor : undefined;
-    } while (cursor);
+      pagesFetched++;
+    } while (cursor && pagesFetched < MAX_PAGES);
 
-    const candidates = allPages.map((page: any) => {
-      const props = page.properties || {};
-      const pageId: string = page.id; // UUID with dashes
-
-      // Name — find title property
-      let name = "";
-      for (const val of Object.values(props) as any[]) {
-        if (val?.type === "title") {
-          name = val.title?.map((t: any) => t.plain_text).join("") || "";
-          if (name) break;
-        }
-      }
-
-      // Role
-      const roleProp = findByName(props, "role") || findByName(props, "position");
-      const role = roleProp ? String(extractText(roleProp) ?? "") : "";
-
-      // Stage / Status
-      const stageProp = findByName(props, "status") || findByName(props, "stage");
-      const stageRaw = stageProp ? String(extractText(stageProp) ?? "") : "";
-      const stage = statusToStage(stageRaw || null);
-
-      // AI Score
-      const aiScoreProp = findByName(props, "ai score") || findByName(props, "ai_score");
-      const aiScore = aiScoreProp ? (extractText(aiScoreProp) as number | null) : null;
-
-      // Human Score
-      const humanScoreProp =
-        findByName(props, "human score") ||
-        findByName(props, "human_score") ||
-        findByName(props, "outcome");
-      const humanScore = humanScoreProp ? (extractText(humanScoreProp) as number | null) : null;
-
-      // Resume files
-      const resumeFiles = getFiles(props, "resume", "cv", "curriculum");
-      const hasResume = resumeFiles.length > 0;
-
-      // Transcript files
-      const transcriptProp =
-        findByName(props, "gemini") ||
-        findByName(props, "transcript") ||
-        findByName(props, "interview");
-      const transcriptFiles =
-        transcriptProp?.type === "files" ? (transcriptProp.files || []) : [];
-      const transcriptUrl =
-        transcriptProp?.type === "url" ? transcriptProp.url :
-        transcriptProp?.type === "rich_text" ? (transcriptProp.rich_text?.[0]?.plain_text || "") : "";
-      const hasTranscript = transcriptFiles.length > 0 || !!transcriptUrl;
-
-      // Notion URL (strip dashes for notion.so short URL)
-      const notionUrl = `https://notion.so/${pageId.replace(/-/g, "")}`;
-
-      return {
-        id: pageId,
-        name: name || pageId,
-        role: role || "—",
-        stage,
-        aiScore: typeof aiScore === "number" ? aiScore : null,
-        humanScore: typeof humanScore === "number" ? humanScore : null,
-        hasResume,
-        resumeFiles: resumeFiles.length,
-        hasTranscript,
-        hasComments: false,    // lazy-loaded client-side via /api/comment-counts
-        commentCount: 0,
-        cvScore: null,
-        interviewAvg: null,
-        formula: null,
-        notionUrl,
-        syncedAt: page.last_edited_time || "",
-      };
-    });
-
-    return NextResponse.json({ candidates, count: candidates.length });
+    const candidates = allPages.map(mapPage);
+    return NextResponse.json({ candidates, count: candidates.length, hasMore: !!cursor });
   } catch (err: any) {
     console.error("candidates route error:", err.message);
     return NextResponse.json({ error: err.message, candidates: [], count: 0 });
