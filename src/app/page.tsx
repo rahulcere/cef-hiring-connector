@@ -12,6 +12,8 @@ interface Candidate {
   hasResume: boolean;
   resumeFiles: number;
   hasTranscript: boolean;
+  hasComments: boolean;
+  commentCount: number;
   lastEdited: string;
   createdTime: string;
   notionUrl: string;
@@ -89,7 +91,7 @@ export default function Dashboard() {
   const [lastSync, setLastSync] = useState<SyncStats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [health, setHealth] = useState<any>(null);
-  const [filter, setFilter] = useState<"all" | "withCV" | "withTranscript">("all");
+  const [filter, setFilter] = useState<"all" | "withCV" | "withTranscript" | "withComments">("all");
   const [search, setSearch] = useState("");
 
   const fetchCandidates = useCallback(async () => {
@@ -147,6 +149,7 @@ export default function Dashboard() {
   const filtered = candidates.filter((c) => {
     if (filter === "withCV" && !c.hasResume) return false;
     if (filter === "withTranscript" && !c.hasTranscript) return false;
+    if (filter === "withComments" && !c.hasComments) return false;
     if (search) {
       const q = search.toLowerCase();
       return c.name.toLowerCase().includes(q) || c.role.toLowerCase().includes(q);
@@ -158,6 +161,7 @@ export default function Dashboard() {
   const withTranscript = candidates.filter((c) => c.hasTranscript).length;
   const withAiScore = candidates.filter((c) => c.aiScore !== null).length;
   const withHumanScore = candidates.filter((c) => c.humanScore !== null).length;
+  const withComments = candidates.filter((c) => c.hasComments).length;
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100">
@@ -232,7 +236,7 @@ export default function Dashboard() {
         )}
 
         {!loading && (
-          <div className="mb-6 grid grid-cols-2 sm:grid-cols-5 gap-4">
+          <div className="mb-6 grid grid-cols-3 sm:grid-cols-6 gap-4">
             <div className="p-4 rounded-lg bg-gray-900 border border-gray-800 text-center">
               <div className="text-3xl font-bold text-white">{candidates.length}</div>
               <div className="text-xs text-gray-400 mt-1">Total Candidates</div>
@@ -253,6 +257,10 @@ export default function Dashboard() {
               <div className="text-3xl font-bold text-amber-400">{withHumanScore}</div>
               <div className="text-xs text-gray-400 mt-1">Human Scored</div>
             </div>
+            <div className="p-4 rounded-lg bg-gray-900 border border-gray-800 text-center">
+              <div className="text-3xl font-bold text-sky-400">{withComments}</div>
+              <div className="text-xs text-gray-400 mt-1">With Comments</div>
+            </div>
           </div>
         )}
 
@@ -266,7 +274,7 @@ export default function Dashboard() {
               className="px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-sm text-gray-200 placeholder-gray-500 w-64 focus:outline-none focus:border-blue-500"
             />
             <div className="flex gap-1">
-              {(["all", "withCV", "withTranscript"] as const).map((f) => (
+              {(["all", "withCV", "withTranscript", "withComments"] as const).map((f) => (
                 <button
                   key={f}
                   onClick={() => setFilter(f)}
@@ -276,7 +284,7 @@ export default function Dashboard() {
                       : "bg-gray-800 text-gray-400 hover:bg-gray-700"
                   }`}
                 >
-                  {f === "all" ? "All" : f === "withCV" ? "Has CV" : "Has Transcript"}
+                  {f === "all" ? "All" : f === "withCV" ? "Has CV" : f === "withTranscript" ? "Has Transcript" : "Has Comments"}
                 </button>
               ))}
             </div>
@@ -336,6 +344,9 @@ export default function Dashboard() {
                       <div className="flex items-center gap-3 justify-center">
                         <DataBadge has={c.hasResume} label="CV" />
                         <DataBadge has={c.hasTranscript} label="Transcript" />
+                        <span className={`inline-flex items-center gap-1 text-xs ${c.hasComments ? "text-sky-400" : "text-gray-600"}`}>
+                          {c.hasComments ? "✓" : "✗"} {c.hasComments ? `${c.commentCount} Comment${c.commentCount !== 1 ? "s" : ""}` : "No Comments"}
+                        </span>
                       </div>
                     </td>
                     <td className="px-4 py-3 text-right text-xs text-gray-500">
