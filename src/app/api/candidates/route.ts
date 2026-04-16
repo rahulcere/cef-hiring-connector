@@ -1,9 +1,12 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { Client } from "@notionhq/client";
 
 export const dynamic = "force-dynamic";
-// Stay within Vercel Hobby 10s hard limit
 export const maxDuration = 10;
+
+let cachedResult: { candidates: any[]; count: number; hasMore: boolean; cachedAt: string } | null = null;
+let cacheTimestamp = 0;
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 function extractText(prop: any): string | number | null {
   if (!prop) return null;
@@ -110,12 +113,17 @@ function mapPage(page: any) {
   };
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const forceRefresh = request.nextUrl.searchParams.get("refresh") === "true";
+
+  if (!forceRefresh && cachedResult && Date.now() - cacheTimestamp < CACHE_TTL_MS) {
+    return NextResponse.json({ ...cachedResult, cached: true });
+  }
+
   try {
     const notion = new Client({ auth: process.env.NOTION_API_KEY });
     const NOTION_DB = process.env.NOTION_DATABASE_ID!;
 
-    // Fetch up to 3 pages (300 candidates) — fast enough to stay under 10s
     const MAX_PAGES = 3;
     const allPages: any[] = [];
     let cursor: string | undefined = undefined;
@@ -134,9 +142,19 @@ export async function GET() {
     } while (cursor && pagesFetched < MAX_PAGES);
 
     const candidates = allPages.map(mapPage);
-    return NextResponse.json({ candidates, count: candidates.length, hasMore: !!cursor });
+    cachedResult = { candidates, count: candidates.length, hasMore: !!cursor, cachedAt: new Date().toISOString() };
+    cacheTimestamp = Date.now();
+    return NextResponse.json(cachedResult);
   } catch (err: any) {
     console.error("candidates route error:", err.message);
+    if (cachedResult) {
+      return NextResponse.json({ ...cachedResult, cached: true, staleReason: err.message });
+    }
     return NextResponse.json({ error: err.message, candidates: [], count: 0 });
   }
+}
+
+export function invalidateCache() {
+  cachedResult = null;
+  cacheTimestamp = 0;
 }

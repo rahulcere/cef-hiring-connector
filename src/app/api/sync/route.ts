@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCefClient } from "@/lib/cef-client";
 import { syncNotionToCef } from "@/lib/notion-bridge";
+import { invalidateCache } from "@/app/api/candidates/route";
 
 // Baseline: only sync changes after this timestamp.
 // Set SYNC_BASELINE in env to anchor the start point after initial data push.
@@ -47,6 +48,7 @@ export async function POST(request: NextRequest) {
 
     lastSyncTime = stats.completedAt;
     lastSyncResult = stats;
+    invalidateCache();
 
     return NextResponse.json({ success: true, stats });
   } catch (err: any) {

@@ -126,15 +126,16 @@ export default function Dashboard() {
     }
   }, []);
 
-  const fetchCandidates = useCallback(async () => {
+  const fetchCandidates = useCallback(async (refresh = false) => {
     try {
-      const res = await fetch("/api/candidates");
+      const url = refresh ? "/api/candidates?refresh=true" : "/api/candidates";
+      const res = await fetch(url);
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       const list: Candidate[] = data.candidates || [];
       setCandidates(list);
       setError(null);
-      fetchCommentCounts(list);
+      if (!data.cached) fetchCommentCounts(list);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -165,7 +166,7 @@ export default function Dashboard() {
       }
       if (data.error) throw new Error(data.error);
       setLastSync(data.stats);
-      await fetchCandidates();
+      await fetchCandidates(true);
     } catch (err: any) {
       setError(err.message);
     } finally {
